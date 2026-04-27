@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>NDBox Upload Files</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 10px;
+            background: #1a1a1a;
+            color: #f0f0f0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+            font-size: 13px;
+        }
+        #container {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        #row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .row-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .row-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        select {
+            min-width: 86px;
+            height: 32px;
+            padding: 0 28px 0 10px;
+            border-radius: 6px;
+            border: 1px solid #555;
+            background: #2b2b2b;
+            color: #fff;
+            font-size: 13px;
+            outline: none;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+        }
+        select:hover {
+            border-color: #777;
+            background: #303030;
+        }
+        select:focus {
+            border-color: #4c9ffe;
+            box-shadow: 0 0 0 2px rgba(76, 159, 254, 0.2);
+            background: #303030;
+        }
+        #upload-target {
+            min-width: 92px;
+        }
+        #file-type {
+            min-width: 84px;
+            text-transform: lowercase;
+        }
+        input[type="file"] {
+            flex: 1;
+            min-width: 140px;
+            padding: 6px 12px;
+            border-radius: 4px;
+            border: 1px solid #555;
+            background: #2b2b2b;
+            color: #fff;
+            font-size: 13px;
+        }
+        button {
+            cursor: pointer;
+            height: 32px;
+            padding: 6px 12px;
+            border-radius: 4px;
+            border: 1px solid #555;
+            background: #2b2b2b;
+            color: #fff;
+            font-size: 13px;
+            transition: border-color 0.15s ease, background 0.15s ease;
+        }
+        button:hover:not([disabled]) {
+            border-color: #777;
+            background: #303030;
+        }
+        button[disabled] {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        #path {
+            padding: 8px;
+            border-radius: 4px;
+            background: rgba(0, 0, 0, 0.4);
+            word-break: break-all;
+        }
+        #status {
+            font-size: 12px;
+            opacity: 0.85;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="row">
+            <div class="row-controls">
+                <select id="upload-target">
+                    <option value="output">output</option>
+                    <option value="input">input</option>
+                </select>
+                <select id="upload-subdir">
+                    <option value="3d">3d</option>
+                </select>
+                <select id="file-type">
+                    <option value="any">any</option>
+                    <option value="npz">npz</option>
+                    <option value="npy">npy</option>
+                    <option value="json">json</option>
+                    <option value="txt">txt</option>
+                    <option value="csv">csv</option>
+                    <option value="bvh">bvh</option>
+                    <option value="fbx">fbx</option>
+                    <option value="obj">obj</option>
+                    <option value="glb">glb</option>
+                </select>
+            </div>
+            <div class="row-actions">
+                <input id="file-input" type="file" />
+                <button id="upload-btn" type="button">上传文件</button>
+            </div>
+        </div>
+        <div id="path">当前路径：未上传</div>
+        <div id="status">等待选择本地文件...</div>
+    </div>
+
+    <script>
+        const ACCEPT_MAP = {
+            any: "*/*",
+            npz: ".npz",
+            npy: ".npy",
+            json: ".json",
+            txt: ".txt",
+            csv: ".csv",
+            bvh: ".bvh",
+            fbx: ".fbx",
+            obj: ".obj",
+            glb: ".glb",
+        };
+
+        const fileInput = document.getElementById("file-input");
+        const uploadTargetSelect = document.getElementById("upload-target");
+        const uploadSubdirSelect = document.getElementById("upload-subdir");
+        const fileTypeSelect = document.getElementById("file-type");
+        const uploadBtn = document.getElementById("upload-btn");
+        const pathEl = document.getElementById("path");
+        const statusEl = document.getElementById("status");
+        let lastAppliedFileType = null;
+
+        function setStatus(text) {
+            statusEl.textContent = text;
+        }
+
+        function setPath(path) {
+            pathEl.textContent = `当前路径：${path || "未上传"}`;
+        }
+
+        function updateAcceptByType(options = {}) {
+            const { clearSelection = false, resetStatus = false } = options;
+            const fileType = fileTypeSelect.value || "any";
+            const typeChanged = fileType !== lastAppliedFileType;
+            fileInput.accept = ACCEPT_MAP[fileType] || "*/*";
+            uploadBtn.textContent = fileType === "any" ? "上传文件" : `上传 .${fileType}`;
+            if ((clearSelection || typeChanged) && fileInput.value) {
+                fileInput.value = "";
+            }
+            if (resetStatus || typeChanged) {
+                setStatus(
+                    fileType === "any"
+                        ? "等待选择本地文件..."
+                        : `等待选择 .${fileType} 文件...`
+                );
+            }
+            lastAppliedFileType = fileType;
+        }
+
+        function updateSubdirState() {
+            const isInput = (uploadTargetSelect.value || "output") === "input";
+            uploadSubdirSelect.disabled = !isInput;
+            uploadSubdirSelect.style.opacity = isInput ? "1" : "0.6";
+        }
+
+        async function refreshInputSubdirs() {
+            try {
+                const resp = await fetch("/NDBox/list_input_subdirs", { method: "GET" });
+                const data = await resp.json();
+                if (!resp.ok || !data?.ok || !Array.isArray(data.subdirs)) return;
+                const oldValue = uploadSubdirSelect.value;
+                uploadSubdirSelect.innerHTML = "";
+                for (const subdir of data.subdirs) {
+                    const opt = document.createElement("option");
+                    opt.value = subdir;
+                    opt.textContent = subdir;
+                    uploadSubdirSelect.appendChild(opt);
+                }
+                if ([...uploadSubdirSelect.options].some((o) => o.value === oldValue)) {
+                    uploadSubdirSelect.value = oldValue;
+                }
+            } catch (e) {
+                // keep existing fallback options
+            }
+        }
+
+        async function UploadFiles() {
+            const file = fileInput.files && fileInput.files[0];
+            const uploadTarget = uploadTargetSelect.value || "output";
+            const uploadSubdir = uploadSubdirSelect.value || "3d";
+            const fileType = fileTypeSelect.value || "any";
+            if (!file) {
+                setStatus("请先选择一个文件");
+                return;
+            }
+            if (file.size <= 0) {
+                setStatus("文件为空，无法上传");
+                return;
+            }
+            if (fileType !== "any" && !file.name.toLowerCase().endsWith(`.${fileType}`)) {
+                setStatus(`文件后缀需为 .${fileType}`);
+                return;
+            }
+
+            uploadBtn.disabled = true;
+            setStatus("上传中...");
+
+            try {
+                const form = new FormData();
+                form.append("file", file, file.name);
+                form.append("file_type", fileType);
+                form.append("upload_target", uploadTarget);
+                form.append("upload_subdir", uploadSubdir);
+
+                const resp = await fetch("/NDBox/upload_files", {
+                    method: "POST",
+                    body: form,
+                });
+                const data = await resp.json();
+
+                if (!resp.ok || !data?.ok) {
+                    throw new Error(data?.error || `HTTP ${resp.status}`);
+                }
+
+                const filePath = data.file_path || "";
+                const uploadedSize = Number.isFinite(data?.size) ? data.size : file.size;
+                const sizeKB = (uploadedSize / 1024).toFixed(2);
+                setPath(filePath);
+                setStatus(`上传成功，大小 ${sizeKB} KB，已写入节点参数`);
+
+                window.parent.postMessage(
+                    {
+                        type: "ndbox_files_uploaded",
+                        filePath,
+                        fileType,
+                        uploadTarget,
+                        uploadSubdir,
+                    },
+                    "*"
+                );
+            } catch (e) {
+                setStatus(`上传失败: ${e.message || e}`);
+            } finally {
+                uploadBtn.disabled = false;
+            }
+        }
+
+        function onMessage(event) {
+            const data = event.data || {};
+            if (data.type === "ndbox_files_state") {
+                setPath(data.filePath || "");
+                if (typeof data.fileType === "string" && ACCEPT_MAP[data.fileType]) {
+                    fileTypeSelect.value = data.fileType;
+                    updateAcceptByType({ clearSelection: false, resetStatus: false });
+                }
+                if (typeof data.uploadTarget === "string" && (data.uploadTarget === "output" || data.uploadTarget === "input")) {
+                    uploadTargetSelect.value = data.uploadTarget;
+                    updateSubdirState();
+                }
+                if (typeof data.uploadSubdir === "string" && data.uploadSubdir) {
+                    if ([...uploadSubdirSelect.options].some((o) => o.value === data.uploadSubdir)) {
+                        uploadSubdirSelect.value = data.uploadSubdir;
+                    }
+                }
+            }
+        }
+
+        uploadBtn.addEventListener("click", UploadFiles);
+        fileInput.addEventListener("change", () => {
+            const file = fileInput.files && fileInput.files[0];
+            const fileType = fileTypeSelect.value || "any";
+            if (!file) return;
+            if (fileType !== "any" && !file.name.toLowerCase().endsWith(`.${fileType}`)) {
+                setStatus(`当前仅支持 .${fileType}，请重新选择`);
+                fileInput.value = "";
+                return;
+            }
+            setStatus(`已选择: ${file.name}`);
+        });
+        fileTypeSelect.addEventListener("change", () => {
+            updateAcceptByType({ clearSelection: true, resetStatus: true });
+            window.parent.postMessage(
+                {
+                    type: "ndbox_files_file_type_changed",
+                    fileType: fileTypeSelect.value || "any",
+                },
+                "*"
+            );
+        });
+        uploadTargetSelect.addEventListener("change", () => {
+            updateSubdirState();
+            window.parent.postMessage(
+                {
+                    type: "ndbox_files_upload_target_changed",
+                    uploadTarget: uploadTargetSelect.value || "output",
+                },
+                "*"
+            );
+        });
+        uploadSubdirSelect.addEventListener("change", () => {
+            window.parent.postMessage(
+                {
+                    type: "ndbox_files_upload_subdir_changed",
+                    uploadSubdir: uploadSubdirSelect.value || "3d",
+                },
+                "*"
+            );
+        });
+        window.addEventListener("message", onMessage);
+        updateAcceptByType({ clearSelection: false, resetStatus: true });
+        updateSubdirState();
+        refreshInputSubdirs();
+    </script>
+</body>
+</html>
+
