@@ -113,6 +113,49 @@ def _list_input_subdirs():
     return sorted(candidates)
 
 
+def _resolve_selected_file_path(upload_target: str, upload_subdir: str, file_name: str) -> str:
+    target = (upload_target or "output").strip().lower()
+    subdir = _normalize_input_subdir(upload_subdir)
+    name = (file_name or "").strip().replace("\\", "/")
+    if not name or name == "none":
+        return ""
+
+    if "/" in name:
+        # Already a relative path-like value.
+        return name
+
+    base_dir = folder_paths.get_output_directory() if target == "output" else folder_paths.get_input_directory()
+    target_subdir = "3d" if target == "output" else subdir
+    candidate = os.path.join(base_dir, target_subdir, name)
+    if os.path.exists(candidate):
+        return f"{target}/{target_subdir}/{name}".replace("\\", "/")
+
+    # Fallback to existing full-path lookup compatibility.
+    full_path = None
+    for folder_key in ("3d", "NDBox_npz"):
+        try:
+            resolved = folder_paths.get_full_path(folder_key, name)
+        except Exception:
+            resolved = None
+        if resolved and os.path.exists(resolved):
+            full_path = resolved
+            break
+
+    if full_path and os.path.exists(full_path):
+        output_dir = os.path.abspath(folder_paths.get_output_directory()).replace("\\", "/")
+        input_dir = os.path.abspath(folder_paths.get_input_directory()).replace("\\", "/")
+        full_norm = os.path.abspath(full_path).replace("\\", "/")
+        if full_norm.startswith(output_dir + "/"):
+            rel = full_norm[len(output_dir) + 1:]
+            return f"output/{rel}"
+        if full_norm.startswith(input_dir + "/"):
+            rel = full_norm[len(input_dir) + 1:]
+            return f"input/{rel}"
+        return full_norm
+
+    return name
+
+
 @PromptServer.instance.routes.post("/NDBox/upload_files")
 async def NDBox_upload_npz(request):
     global LAST_UPLOADED_PATH
@@ -205,6 +248,18 @@ async def NDBox_list_input_subdirs(request):
         return web.json_response({"ok": False, "error": str(e)}, status=500)
 
 
+@PromptServer.instance.routes.get("/NDBox/resolve_file_path")
+async def NDBox_resolve_file_path(request):
+    try:
+        upload_target = (request.query.get("upload_target", "output") or "output").strip().lower()
+        upload_subdir = request.query.get("upload_subdir", "3d") or "3d"
+        file_name = request.query.get("file_name", "none") or "none"
+        path = _resolve_selected_file_path(upload_target, upload_subdir, file_name)
+        return web.json_response({"ok": True, "file_path": path})
+    except Exception as e:
+        return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+
 class NDBox_UploadFiles:
     @classmethod
     def INPUT_TYPES(cls):
@@ -293,41 +348,7 @@ class NDBox_UploadFiles:
             path = LAST_UPLOADED_PATH
 
         if not path and file_name and file_name != "none":
-            full_path = None
-            for folder_key in ("3d", "NDBox_npz"):
-                try:
-                    candidate = folder_paths.get_full_path(folder_key, file_name)
-                except Exception:
-                    candidate = None
-                if candidate and os.path.exists(candidate):
-                    full_path = candidate
-                    break
-
-            if not full_path:
-                for base_dir in (folder_paths.get_output_directory(), folder_paths.get_input_directory()):
-                    for subdir in ("3d", "NDBox_npz"):
-                        candidate = os.path.join(base_dir, subdir, file_name)
-                        if os.path.exists(candidate):
-                            full_path = candidate
-                            break
-                    if full_path:
-                        break
-
-            if full_path and os.path.exists(full_path):
-                output_dir = os.path.abspath(folder_paths.get_output_directory()).replace("\\", "/")
-                input_dir = os.path.abspath(folder_paths.get_input_directory()).replace("\\", "/")
-                full_norm = os.path.abspath(full_path).replace("\\", "/")
-
-                if full_norm.startswith(output_dir + "/"):
-                    rel = full_norm[len(output_dir) + 1:]
-                    path = f"output/{rel}"
-                elif full_norm.startswith(input_dir + "/"):
-                    rel = full_norm[len(input_dir) + 1:]
-                    path = f"input/{rel}"
-                else:
-                    path = full_norm
-            else:
-                path = file_name.replace("\\", "/")
+            path = _resolve_selected_file_path(upload_target, upload_subdir, file_name)
 
         return {"ui": {"file_path": [path]}, "result": (path,)}
 

@@ -96,6 +96,45 @@ app.registerExtension({
                 }
             };
 
+            const syncPathBySelection = async () => {
+                const pathWidget = getPathWidget();
+                const nameWidget = getNameWidget();
+                const targetWidget = getTargetWidget();
+                const subdirWidget = getSubdirWidget();
+                if (!pathWidget || !nameWidget) return;
+
+                const fileName = String(nameWidget.value || "none");
+                if (!fileName || fileName === "none") {
+                    pathWidget.value = "";
+                    if (typeof pathWidget.callback === "function") {
+                        pathWidget.callback("");
+                    }
+                    node.setDirtyCanvas(true, true);
+                    return;
+                }
+
+                const uploadTarget = String(targetWidget?.value || "output");
+                const uploadSubdir = String(subdirWidget?.value || "3d");
+                try {
+                    const query = new URLSearchParams({
+                        upload_target: uploadTarget,
+                        upload_subdir: uploadSubdir,
+                        file_name: fileName,
+                    });
+                    const resp = await fetch(`/NDBox/resolve_file_path?${query.toString()}`, { method: "GET" });
+                    const data = await resp.json();
+                    if (!resp.ok || !data?.ok) return;
+                    const resolved = typeof data.file_path === "string" ? data.file_path : "";
+                    pathWidget.value = resolved;
+                    if (typeof pathWidget.callback === "function") {
+                        pathWidget.callback(resolved);
+                    }
+                    node.setDirtyCanvas(true, true);
+                } catch (e) {
+                    console.warn("[NDBox_UploadFiles] resolve file_path failed:", e);
+                }
+            };
+
             const sendStateToIframe = (pathValue, fileTypeValue, uploadTargetValue, uploadSubdirValue) => {
                 if (!iframe.contentWindow) return;
                 iframe.contentWindow.postMessage(
@@ -182,6 +221,7 @@ app.registerExtension({
                     }
                     refreshHistoryByType(data.fileType);
                     node.setDirtyCanvas(true, true);
+                    setTimeout(syncPathBySelection, 0);
                     syncCurrentState();
                 }
 
@@ -193,6 +233,7 @@ app.registerExtension({
                         targetWidget.callback(data.uploadTarget);
                     }
                     node.setDirtyCanvas(true, true);
+                    setTimeout(syncPathBySelection, 0);
                     syncCurrentState();
                 }
 
@@ -204,6 +245,7 @@ app.registerExtension({
                         subdirWidget.callback(data.uploadSubdir);
                     }
                     node.setDirtyCanvas(true, true);
+                    setTimeout(syncPathBySelection, 0);
                     syncCurrentState();
                 }
             });
@@ -240,7 +282,10 @@ app.registerExtension({
                 typeWidget.callback = (...args) => {
                     originalTypeCallback(...args);
                     setTimeout(syncCurrentState, 0);
-                    setTimeout(() => refreshHistoryByType(typeWidget.value), 0);
+                    setTimeout(async () => {
+                        await refreshHistoryByType(typeWidget.value);
+                        await syncPathBySelection();
+                    }, 0);
                 };
             }
             const targetWidget = getTargetWidget();
@@ -249,6 +294,7 @@ app.registerExtension({
                 targetWidget.callback = (...args) => {
                     originalTargetCallback(...args);
                     setTimeout(syncCurrentState, 0);
+                    setTimeout(syncPathBySelection, 0);
                 };
             }
             const subdirWidget = getSubdirWidget();
@@ -257,11 +303,21 @@ app.registerExtension({
                 subdirWidget.callback = (...args) => {
                     originalSubdirCallback(...args);
                     setTimeout(syncCurrentState, 0);
+                    setTimeout(syncPathBySelection, 0);
+                };
+            }
+            const nameWidget = getNameWidget();
+            if (nameWidget && typeof nameWidget.callback === "function") {
+                const originalNameCallback = nameWidget.callback.bind(nameWidget);
+                nameWidget.callback = (...args) => {
+                    originalNameCallback(...args);
+                    setTimeout(syncCurrentState, 0);
+                    setTimeout(syncPathBySelection, 0);
                 };
             }
 
             const initialType = typeWidget ? typeWidget.value : "any";
-            refreshHistoryByType(initialType);
+            refreshHistoryByType(initialType).then(() => syncPathBySelection());
             setTimeout(syncCurrentState, 200);
             return r;
         };

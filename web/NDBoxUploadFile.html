@@ -158,13 +158,16 @@
         const pathEl = document.getElementById("path");
         const statusEl = document.getElementById("status");
         let lastAppliedFileType = null;
+        let currentPath = "";
 
         function setStatus(text) {
             statusEl.textContent = text;
         }
 
         function setPath(path) {
-            pathEl.textContent = `当前路径：${path || "未上传"}`;
+            const normalized = (path || "").toString().trim();
+            currentPath = normalized;
+            pathEl.textContent = `当前路径：${normalized || "未上传"}`;
         }
 
         function updateAcceptByType(options = {}) {
@@ -277,7 +280,14 @@
         function onMessage(event) {
             const data = event.data || {};
             if (data.type === "ndbox_files_state") {
-                setPath(data.filePath || "");
+                const incomingPath =
+                    (typeof data.filePath === "string" && data.filePath)
+                    || (typeof data.npzPath === "string" && data.npzPath)
+                    || "";
+                // Avoid wiping uploaded path with transient empty sync payloads.
+                if (incomingPath || !currentPath) {
+                    setPath(incomingPath);
+                }
                 if (typeof data.fileType === "string" && ACCEPT_MAP[data.fileType]) {
                     fileTypeSelect.value = data.fileType;
                     updateAcceptByType({ clearSelection: false, resetStatus: false });

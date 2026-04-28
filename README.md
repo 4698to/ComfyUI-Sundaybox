@@ -84,6 +84,60 @@ ComfyUI-Sundaybox/
 - 页面更新后若 UI 未同步，建议浏览器强制刷新（`Ctrl+F5`）。
 - `download_id` 设计为短期/一次性使用，适合前端安全下载场景。
 
+## 流程对比（原生 vs 本插件）
+
+### 1) ComfyUI 原生常见流程（无本插件）
+
+```mermaid
+sequenceDiagram
+    participant U as 用户
+    participant FE as ComfyUI 前端
+    participant BE as ComfyUI 后端
+    participant FS as 文件系统(input/output)
+
+    U->>FE: 在节点中选择本地文件(常见为图片)
+    FE->>BE: 上传文件请求
+    BE->>FS: 写入 input/受控目录
+    U->>FE: 点击 Queue 执行工作流
+    FE->>BE: 提交 prompt
+    BE->>FS: 生成结果并写入 output
+    BE-->>FE: 返回 history/结果元数据(filename, subfolder, type)
+    FE->>BE: 请求 view/文件接口
+    BE-->>FE: 返回文件流
+    FE-->>U: 浏览器下载或保存
+```
+
+### 2) 使用本插件的流程
+
+```mermaid
+sequenceDiagram
+    participant U as 用户
+    participant FE as 插件前端(iframe)
+    participant BE as 插件后端路由
+    participant FS as 文件系统(input/output)
+
+    U->>FE: 选择文件并点击上传
+    FE->>BE: POST /NDBox/upload_files
+    BE->>FS: 写入 output/3d 或 input/子目录
+    BE-->>FE: 返回 file_path
+    FE-->>FE: 回写节点 file_path + 刷新 file_files
+
+    U->>FE: 在下载节点输入 file_path
+    FE->>BE: 节点执行并注册 download_id
+    BE-->>FE: 返回 file_name / file_exists / download_id
+    U->>FE: 点击下载按钮
+    FE->>BE: GET /NDBox/download_file/{download_id}
+    BE->>FS: 校验并读取目标文件
+    BE-->>FE: 文件流(attachment)
+    FE-->>U: 浏览器下载文件
+```
+
+### 3) 差异总结
+
+- 原生流程更偏向图像等标准输入输出，通用文件管理能力较弱。
+- 本插件提供节点内上传/下载 UI，支持更多文件类型与目录策略。
+- 本插件下载通过 `download_id` 进行安全映射，避免前端直接暴露服务器绝对路径。
+
 
 ## 开发备注
 
